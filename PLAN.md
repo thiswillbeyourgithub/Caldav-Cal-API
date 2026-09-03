@@ -3,6 +3,8 @@
 Plan written with Claude Code. Keep this file updated as work progresses so a future session can pick up
 where the last one stopped.
 
+**Status: all planned steps are complete.** What remains is listed under Open TODOs at the bottom.
+
 ## Context
 
 `caldav_tasks_api` (sibling repo at `../caldav_tasks_api_repo`, v1.8.0, AGPLv3, same author) is a CalDAV
@@ -15,17 +17,17 @@ modified through simple Python objects.
 ## Progress checklist
 
 - [x] 1. `PLAN.md`, `.gitignore`, `.pre-commit-config.yaml`, initial commit
-- [ ] 2. `setup.py`, `bumpver.toml`, package skeleton, `utils/logging_config.py`
-- [ ] 3. `utils/data.py`: `XProperties`, `CalendarData`, `EventData` fields + `__post_init__` invariant
-- [ ] 4. `EventData.from_ical` / `to_ical` / `to_vcalendar` / `to_dict` + offline round-trip tests
-- [ ] 5. `Occurrence` + `get_occurrences` + offline tests (DST, EXDATE, RDATE, all-day)
-- [ ] 6. `caldav_cal_api.py`: connect, `_adjust_url`, `_fetch_raw_calendars`, `load_remote_data` + window
-- [ ] 7. `add_event` / `update_event` / `delete_event_by_id` + read-only guards
-- [ ] 8. `__main__.py`: the four CLI commands
-- [ ] 9. `tests/conftest.py` + integration tests against a real server
-- [ ] 10. `README.md`, `.env.example`
-- [ ] 11. `docs/` sphinx layout + `.readthedocs.yaml`
-- [ ] 12. `examples/`
+- [x] 2. `setup.py`, `bumpver.toml`, package skeleton, `utils/logging_config.py`
+- [x] 3. `utils/data.py`: `XProperties`, `CalendarData`, `EventData` fields + `__post_init__` invariant
+- [x] 4. `EventData.from_ical` / `to_ical` / `to_vcalendar` / `to_dict` + offline round-trip tests (`tests/test_event_data.py`)
+- [x] 5. `Occurrence` + `get_occurrences` + offline tests (`tests/test_occurrences.py`)
+- [x] 6. `caldav_cal_api.py`: connect, `_adjust_url`, `_fetch_raw_calendars`, `load_remote_data` + window
+- [x] 7. `add_event` / `update_event` / `delete_event_by_id` + read-only guards
+- [x] 8. `__main__.py`: the four CLI commands
+- [x] 9. `tests/conftest.py` + integration tests against a real server (`tests/test_cal_api.py`)
+- [x] 10. `README.md`, `.env.example`
+- [x] 11. `docs/` sphinx layout + `.readthedocs.yaml`
+- [x] 12. `examples/`
 
 `LICENSE` is deliberately absent: the user adds it (AGPLv3, matching the sibling). Do not generate one.
 
