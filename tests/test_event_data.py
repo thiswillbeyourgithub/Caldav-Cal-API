@@ -71,7 +71,9 @@ def test_timezone_is_normalized_to_utc_but_tzid_is_kept():
     """A TZID event is stored as UTC yet renders back to its original wall clock."""
     event = EventData.from_ical(RICH_VEVENT)
 
-    assert event.dtstart == datetime.datetime(2026, 1, 14, 8, 0, tzinfo=datetime.timezone.utc)
+    assert event.dtstart == datetime.datetime(
+        2026, 1, 14, 8, 0, tzinfo=datetime.timezone.utc
+    )
     assert event.dtstart_tzid == "Europe/Paris"
     assert event.dtstart_local.hour == 9
     assert event.dtstart_local.tzinfo == PARIS
@@ -128,7 +130,9 @@ def test_duration_is_preserved_when_the_event_is_not_retimed():
         "END:VEVENT\r\n"
     )
     event = EventData.from_ical(ical)
-    assert event.dtend == datetime.datetime(2026, 1, 14, 10, 30, tzinfo=datetime.timezone.utc)
+    assert event.dtend == datetime.datetime(
+        2026, 1, 14, 10, 30, tzinfo=datetime.timezone.utc
+    )
 
     first = event.to_ical()
     assert "DURATION:PT1H30M" in first
