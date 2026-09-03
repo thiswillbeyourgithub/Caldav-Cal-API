@@ -1,0 +1,14 @@
+# Mirrors the sibling caldav_tasks_api repo, with one deliberate difference:
+# the sibling uses a blanket `.env*` which would also swallow `.env.example`,
+# so the example file is explicitly un-ignored below.
+.aider*
+**/__pycache__
+.env
+.env.*
+!.env.example
+*.egg-info
+.venv/
+dist/
+build/
+.pytest_cache/
+docs/build/

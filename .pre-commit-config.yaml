@@ -1,0 +1,8 @@
+# Formatting only. The sibling repo uses black exclusively (no ruff/isort/flake8/mypy),
+# and keeping the two projects on the same formatter means code can be moved between
+# them without a reformat diff.
+repos:
+  - repo: https://github.com/psf/black
+    rev: stable
+    hooks:
+      - id: black
