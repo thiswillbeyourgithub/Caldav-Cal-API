@@ -23,6 +23,7 @@ Two conventions govern this module and are worth knowing before reading further:
 
 from __future__ import annotations
 
+import copy
 import datetime
 from dataclasses import dataclass, field, fields
 from typing import Any, Dict, Optional, TYPE_CHECKING
@@ -30,6 +31,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import icalendar
+from icalendar.parser import Contentline
 from loguru import logger
 
 if TYPE_CHECKING:
@@ -395,6 +397,19 @@ class EventData:
                     "the inclusive final day of an all-day event."
                 )
 
+        # DTSTAMP is mandatory in a VEVENT, so it is settled here rather than at write
+        # time: to_ical() must be a pure function of the object for the round-trip
+        # guarantee (to_ical -> from_ical -> to_ical is byte-identical) to hold.
+        # Microseconds are dropped because iCal has no sub-second precision, and keeping
+        # them would make an object differ from its own parsed copy.
+        now_utc = datetime.datetime.now(UTC).replace(microsecond=0)
+        if self.created_at is None:
+            self.created_at = now_utc
+        if self.changed_at is None:
+            self.changed_at = now_utc
+        self.created_at = self.created_at.replace(microsecond=0)
+        self.changed_at = self.changed_at.replace(microsecond=0)
+
         # A UID is minted only for events this process invented. Assigning one to a
         # component that came off a server would silently fork it into a second event.
         if not self.uid and self._raw_component is None:
@@ -593,3 +608,711 @@ class EventData:
             "synced": self.synced,
             "x_properties": self.x_properties.get_raw_properties(),
         }
+
+    # --- Serialization ----------------------------------------------------------
+
+    # Properties this class owns. On write they are deleted from the retained source
+    # component and rewritten from the dataclass fields; everything else the server sent
+    # (ATTENDEE, ORGANIZER, VALARM, TRANSP, CLASS, GEO, URL, ATTACH, RELATED-TO, ...) is
+    # left exactly as it was. Without this, updating a meeting's summary would strip its
+    # participants and everyone's reminders, because this class does not model them.
+    _MANAGED_PROPERTIES = frozenset(
+        {
+            "UID",
+            "SUMMARY",
+            "DESCRIPTION",
+            "LOCATION",
+            "STATUS",
+            "CATEGORIES",
+            "DTSTART",
+            "DTEND",
+            "DURATION",
+            "RRULE",
+            "RDATE",
+            "EXDATE",
+            "DTSTAMP",
+            "LAST-MODIFIED",
+            "SEQUENCE",
+        }
+    )
+
+    def _build_component(self) -> icalendar.Event:
+        """Produce the icalendar component representing this event.
+
+        Returns
+        -------
+        icalendar.Event
+            A copy of the retained source component (or a fresh one) with every managed
+            property rewritten from the dataclass fields.
+
+        Notes
+        -----
+        Both serialization entry points funnel through here, and the managed properties
+        are always deleted then re-added in the same fixed order. That is what makes
+        ``to_ical() -> from_ical() -> to_ical()`` byte-identical: unmanaged properties
+        keep their relative position, managed ones are always appended in one canonical
+        sequence, so a second pass reproduces the first.
+        """
+        component = (
+            copy.deepcopy(self._raw_component)
+            if self._raw_component is not None
+            else icalendar.Event()
+        )
+
+        for key in list(component.keys()):
+            upper = str(key).upper()
+            if upper in self._MANAGED_PROPERTIES or upper.startswith("X-"):
+                del component[key]
+
+        component.add("UID", self.uid)
+        if self.created_at is not None:
+            component.add("DTSTAMP", self.created_at)
+
+        if self.dtstart is not None:
+            # The localized value is written, not the UTC one, so the emitted line
+            # carries DTSTART;TZID=... and the event keeps the zone it was authored in.
+            component.add("DTSTART", self.dtstart_local)
+
+        if self._should_write_duration():
+            component.add("DURATION", self._source_duration)
+        elif self.dtend is not None:
+            component.add("DTEND", self.dtend_local)
+
+        if self.summary:
+            component.add("SUMMARY", self.summary)
+        if self.description:
+            component.add("DESCRIPTION", self.description)
+        if self.location:
+            component.add("LOCATION", self.location)
+        if self.status:
+            component.add("STATUS", self.status)
+        if self.categories:
+            component.add("CATEGORIES", self.categories)
+
+        if self.rrule:
+            component.add("RRULE", icalendar.prop.vRecur.from_ical(self.rrule))
+        self._add_raw_date_lines(component=component, name="RDATE", lines=self.rdate)
+        self._add_raw_date_lines(component=component, name="EXDATE", lines=self.exdate)
+
+        if self.changed_at is not None:
+            component.add("LAST-MODIFIED", self.changed_at)
+        if self.sequence:
+            component.add("SEQUENCE", self.sequence)
+
+        for raw_key, raw_value in self.x_properties.items():
+            # The stored key keeps any parameters the server sent, e.g.
+            # "X-APPLE-SORT-ORDER;VALUE=TEXT", so it is split back apart here.
+            prop_name, _, param_str = raw_key.partition(";")
+            prop = icalendar.prop.vText(raw_value)
+            if param_str:
+                for chunk in param_str.split(";"):
+                    param_key, _, param_value = chunk.partition("=")
+                    prop.params[param_key] = param_value
+            component.add(prop_name, prop, encode=0)
+
+        return component
+
+    def _should_write_duration(self) -> bool:
+        """Whether to emit DURATION instead of DTEND.
+
+        Returns
+        -------
+        bool
+            True only when the source used DURATION *and* the event has not been retimed
+            since.
+
+        Notes
+        -----
+        DTEND and DURATION are mutually exclusive in a VEVENT. Writing DURATION back
+        when it is still accurate preserves byte-level fidelity with the server copy and
+        keeps the nominal-duration semantics that matter for a recurring event crossing
+        a DST boundary. Once the caller changes dtstart or dtend the stored duration no
+        longer describes the event, so DTEND wins.
+        """
+        if self._source_duration is None:
+            return False
+        if self.dtstart is None or self.dtend is None:
+            return False
+        return (self.dtend - self.dtstart) == self._source_duration
+
+    @staticmethod
+    def _add_raw_date_lines(
+        *, component: icalendar.Event, name: str, lines: list[str]
+    ) -> None:
+        """Re-add stored RDATE/EXDATE content lines to `component`.
+
+        Parameters
+        ----------
+        component : icalendar.Event
+            Component to mutate.
+        name : str
+            Either ``"RDATE"`` or ``"EXDATE"``.
+        lines : list of str
+            Full content lines as stored, e.g.
+            ``"EXDATE;TZID=Europe/Paris:20260121T090000"``.
+
+        Notes
+        -----
+        These are kept as whole content lines rather than parsed values because that is
+        precisely the form ``dateutil.rrule.rrulestr`` consumes, which is what makes the
+        "store recurrence raw, expand on demand" design cheap. Reconstructing the
+        property object here costs one parse and keeps parameters (TZID, VALUE=DATE)
+        intact.
+        """
+        for line in lines:
+            try:
+                _, params, value = Contentline(line).parts()
+                values = icalendar.prop.vDDDLists.from_ical(
+                    value, timezone=params.get("TZID")
+                )
+                prop = icalendar.prop.vDDDLists(values)
+                prop.params = params
+                component.add(name, prop, encode=0)
+            except Exception as e:
+                logger.warning(f"Dropping unparseable {name} line '{line}': {e}")
+
+    def to_ical(self) -> str:
+        """Serialize to a bare VEVENT block.
+
+        Returns
+        -------
+        str
+            The component's iCalendar text, CRLF-terminated as RFC 5545 requires.
+
+        Notes
+        -----
+        Unlike the sibling caldav_tasks_api, which hand-writes LF-separated lines, this
+        goes through the icalendar library and therefore emits CRLF and folds long
+        lines. Use :meth:`to_vcalendar` for anything actually sent to a server.
+        """
+        return self._build_component().to_ical().decode("utf-8")
+
+    def to_vcalendar(self, *, prodid: str = "-//caldav_cal_api//EN") -> str:
+        """Serialize to a complete VCALENDAR, ready to PUT to a server.
+
+        Parameters
+        ----------
+        prodid : str, optional
+            PRODID to advertise.
+
+        Returns
+        -------
+        str
+            A VCALENDAR containing this event plus any VTIMEZONE its TZIDs require.
+
+        Notes
+        -----
+        A ``DTSTART;TZID=Europe/Paris`` with no matching VTIMEZONE component is invalid
+        per RFC 5545 and some servers reject it outright, so the timezones are
+        synthesized here rather than left to the caller.
+        """
+        calendar = icalendar.Calendar()
+        calendar.add("PRODID", prodid)
+        calendar.add("VERSION", "2.0")
+        calendar.add_component(self._build_component())
+        calendar.add_missing_timezones()
+        return calendar.to_ical().decode("utf-8")
+
+    @staticmethod
+    def from_ical(
+        ical: str | bytes | icalendar.Event, calendar_uid: str = ""
+    ) -> "EventData":
+        """Build an :class:`EventData` from iCalendar data.
+
+        Parameters
+        ----------
+        ical : str or bytes or icalendar.Event
+            A VEVENT block, a VCALENDAR wrapping one, or an already-parsed component.
+        calendar_uid : str, optional
+            UID of the owning calendar, recorded on the result.
+
+        Returns
+        -------
+        EventData
+            The master component. ``synced`` is left False: it is a statement about the
+            server that only :class:`~caldav_cal_api.caldav_cal_api.CalendarAPI` may make.
+
+        Raises
+        ------
+        ValueError
+            If no VEVENT can be found in the input.
+
+        Notes
+        -----
+        When several VEVENTs share a UID, the one *without* a RECURRENCE-ID is the
+        master and the others are per-occurrence overrides. This library deliberately
+        does not model overrides, so they are dropped with a warning rather than
+        silently: losing an override changes what the user sees, and they deserve to
+        know it happened.
+        """
+        component = EventData._select_master_component(ical)
+
+        def text(name: str) -> str:
+            value = component.get(name)
+            if value is None:
+                return ""
+            if isinstance(value, list):  # Repeated property: keep the first occurrence.
+                value = value[0]
+            return str(value)
+
+        dtstart, dtstart_tzid = EventData._read_datetime_property(component, "DTSTART")
+        dtend, dtend_tzid = EventData._read_datetime_property(component, "DTEND")
+
+        source_duration: Optional[datetime.timedelta] = None
+        if (
+            dtend is None
+            and component.get("DURATION") is not None
+            and dtstart is not None
+        ):
+            source_duration = component["DURATION"].dt
+            dtend = dtstart + source_duration
+            dtend_tzid = dtstart_tzid
+
+        created_at, _ = EventData._read_datetime_property(component, "DTSTAMP")
+        changed_at, _ = EventData._read_datetime_property(component, "LAST-MODIFIED")
+
+        try:
+            sequence = int(component.get("SEQUENCE", 0))
+        except (TypeError, ValueError):
+            logger.warning(
+                f"Unparseable SEQUENCE '{component.get('SEQUENCE')}'; using 0."
+            )
+            sequence = 0
+
+        event = EventData(
+            calendar_uid=calendar_uid,
+            categories=EventData._read_categories(component),
+            changed_at=changed_at,
+            created_at=created_at,
+            description=text("DESCRIPTION"),
+            dtend=dtend,
+            dtend_tzid=dtend_tzid,
+            dtstart=dtstart,
+            dtstart_tzid=dtstart_tzid,
+            exdate=EventData._read_raw_date_lines(component, "EXDATE"),
+            location=text("LOCATION"),
+            rdate=EventData._read_raw_date_lines(component, "RDATE"),
+            rrule=EventData._read_rrule(component),
+            sequence=sequence,
+            status=text("STATUS"),
+            summary=text("SUMMARY"),
+            uid=text("UID"),
+            x_properties=EventData._read_x_properties(component),
+            _raw_component=component,
+            _source_duration=source_duration,
+        )
+        return event
+
+    @staticmethod
+    def _select_master_component(
+        ical: str | bytes | icalendar.Event,
+    ) -> icalendar.Event:
+        """Find the master VEVENT in `ical`, warning about any dropped overrides."""
+        if isinstance(ical, icalendar.Event):
+            return ical
+
+        text = (
+            ical.decode("utf-8", errors="replace") if isinstance(ical, bytes) else ical
+        )
+
+        components: list[icalendar.Event] = []
+        try:
+            parsed = icalendar.Calendar.from_ical(text)
+            components = list(parsed.walk("VEVENT"))
+        except Exception:
+            components = []
+
+        if not components:
+            # A bare "BEGIN:VEVENT ... END:VEVENT" block has no enclosing VCALENDAR.
+            try:
+                components = [icalendar.Event.from_ical(text)]
+            except Exception as e:
+                raise ValueError(f"Could not parse any VEVENT from the input: {e}")
+
+        masters = [c for c in components if "RECURRENCE-ID" not in c]
+        if not masters:
+            # Degenerate but real: a server may hand back only an override.
+            logger.warning(
+                "No master VEVENT found (every component has a RECURRENCE-ID). "
+                "Using the first override as if it were the master."
+            )
+            return components[0]
+
+        dropped = len(components) - 1
+        if dropped > 0:
+            logger.warning(
+                f"Dropping {dropped} RECURRENCE-ID override(s) for UID "
+                f"'{masters[0].get('UID')}': this library models the master event only, "
+                "so per-occurrence modifications are not represented."
+            )
+        return masters[0]
+
+    @staticmethod
+    def _read_datetime_property(
+        component: icalendar.Event, name: str
+    ) -> tuple[Optional[datetime.datetime | datetime.date], str]:
+        """Read a date/date-time property and its TZID parameter.
+
+        Returns
+        -------
+        tuple of (datetime.datetime or datetime.date or None, str)
+
+        Notes
+        -----
+        The DATE vs DATE-TIME distinction comes from the parsed type, never from
+        inspecting the string for a ``"T"``: icalendar reports ``VALUE=DATE``
+        structurally and getting this from the text is how off-by-one-day bugs start.
+        """
+        prop = component.get(name)
+        if prop is None:
+            return None, ""
+        if isinstance(prop, list):
+            prop = prop[0]
+        return prop.dt, str(prop.params.get("TZID", ""))
+
+    @staticmethod
+    def _read_categories(component: icalendar.Event) -> list[str]:
+        """Flatten CATEGORIES, which may appear as one property or several."""
+        prop = component.get("CATEGORIES")
+        if prop is None:
+            return []
+        props = prop if isinstance(prop, list) else [prop]
+        categories: list[str] = []
+        for item in props:
+            cats = getattr(item, "cats", None)
+            if cats is None:
+                categories.append(str(item))
+            else:
+                categories.extend(str(cat) for cat in cats)
+        return categories
+
+    @staticmethod
+    def _read_rrule(component: icalendar.Event) -> str:
+        """Read RRULE back as its raw value string."""
+        prop = component.get("RRULE")
+        if prop is None:
+            return ""
+        if isinstance(prop, list):
+            logger.warning(
+                "Multiple RRULE properties found; RFC 5545 allows only one. "
+                "Keeping the first and dropping the rest."
+            )
+            prop = prop[0]
+        return prop.to_ical().decode("utf-8")
+
+    @staticmethod
+    def _read_raw_date_lines(component: icalendar.Event, name: str) -> list[str]:
+        """Read RDATE/EXDATE back as full content lines.
+
+        Notes
+        -----
+        Content lines rather than parsed values, because that is the form
+        ``dateutil.rrule.rrulestr`` accepts directly. See :meth:`_add_raw_date_lines`.
+        """
+        prop = component.get(name)
+        if prop is None:
+            return []
+        props = prop if isinstance(prop, list) else [prop]
+        return [str(Contentline.from_parts(name, item.params, item)) for item in props]
+
+    @staticmethod
+    def _read_x_properties(component: icalendar.Event) -> XProperties:
+        """Collect every ``X-`` property, preserving raw keys and their parameters."""
+        collected: Dict[str, str] = {}
+        for key in component.keys():
+            if not str(key).upper().startswith("X-"):
+                continue
+            prop = component[key]
+            if isinstance(prop, list):
+                prop = prop[0]
+            raw_key = str(key)
+            params = getattr(prop, "params", {})
+            if params:
+                raw_key += ";" + ";".join(f"{k}={v}" for k, v in params.items())
+            collected[raw_key] = str(prop)
+        return XProperties(collected)
+
+    # --- Recurrence expansion ---------------------------------------------------
+
+    def get_occurrences(
+        self,
+        start: datetime.datetime | datetime.date,
+        end: datetime.datetime | datetime.date,
+        *,
+        limit: int = 1000,
+    ) -> list["Occurrence"]:
+        """Expand this event's recurrence into concrete instances overlapping a window.
+
+        Parameters
+        ----------
+        start, end : datetime.datetime or datetime.date
+            Half-open window ``[start, end)``. Dates are read as midnight UTC; naive
+            datetimes are assumed to be UTC.
+        limit : int, optional
+            Maximum number of occurrences to return.
+
+        Returns
+        -------
+        list of Occurrence
+            Sorted by start. Empty when the event never falls inside the window.
+
+        Raises
+        ------
+        ValueError
+            If `end` is before `start`.
+
+        Notes
+        -----
+        An instance is included when it *overlaps* the window, not merely when it starts
+        inside it, which is what a calendar view needs to draw an event already in
+        progress at the left edge.
+
+        Expansion runs in the event's original timezone and only then converts back to
+        UTC. Expanding "every Monday 09:00 Europe/Paris" over UTC instants would drift by
+        an hour at each DST transition; this is the reason ``dtstart_tzid`` is kept at
+        all.
+
+        A malformed rule is logged and degrades to "the master event only" rather than
+        raising: one bad RRULE somewhere in a calendar must not break the whole view.
+        """
+        window_start = _as_utc_datetime(start)
+        window_end = _as_utc_datetime(end)
+        if window_end < window_start:
+            raise ValueError(f"end ({end}) must not be before start ({start}).")
+
+        if self.dtstart is None:
+            return []
+
+        duration = self.duration or datetime.timedelta(0)
+
+        if not self.is_recurring:
+            occurrence = Occurrence(
+                all_day=self.all_day,
+                dtend=self.effective_dtend,
+                dtstart=self.dtstart,
+                event=self,
+            )
+            return [occurrence] if occurrence.overlaps(window_start, window_end) else []
+
+        # All-day values are DST-immune, so they expand safely anchored at midnight UTC.
+        # Timed values must expand in their own zone, see the note above.
+        zone = UTC if self.all_day else (_resolve_zone(self.dtstart_tzid) or UTC)
+        anchor = self._expansion_anchor(zone)
+
+        try:
+            instances = self._expand_rule_set(
+                anchor=anchor,
+                zone=zone,
+                window_start=window_start,
+                window_end=window_end,
+                duration=duration,
+            )
+        except Exception as e:
+            logger.error(
+                f"Could not expand recurrence for event '{self.uid}' "
+                f"(rrule={self.rrule!r}): {e}. Falling back to the master event only."
+            )
+            instances = [anchor]
+
+        occurrences: list[Occurrence] = []
+        for instance in instances:
+            occurrence_start = self._instance_to_stored_type(instance)
+            occurrence_end = occurrence_start + duration
+            occurrence = Occurrence(
+                all_day=self.all_day,
+                dtend=occurrence_end,
+                dtstart=occurrence_start,
+                event=self,
+            )
+            if not occurrence.overlaps(window_start, window_end):
+                continue
+            occurrences.append(occurrence)
+            if len(occurrences) >= limit:
+                logger.warning(
+                    f"Occurrence limit of {limit} reached while expanding event "
+                    f"'{self.uid}'. Narrow the window or raise the limit to see more."
+                )
+                break
+
+        occurrences.sort(key=lambda occ: _as_utc_datetime(occ.dtstart))
+        return occurrences
+
+    def _expansion_anchor(self, zone: datetime.tzinfo) -> datetime.datetime:
+        """Return the DTSTART to expand from, as an aware datetime in `zone`."""
+        if self.all_day:
+            return datetime.datetime.combine(
+                self.dtstart, datetime.time.min, tzinfo=zone
+            )
+        return self.dtstart.astimezone(zone)
+
+    def _instance_to_stored_type(
+        self, instance: datetime.datetime
+    ) -> datetime.datetime | datetime.date:
+        """Convert one expanded instance back to the type this event stores."""
+        return instance.date() if self.all_day else instance.astimezone(UTC)
+
+    def _expand_rule_set(
+        self,
+        *,
+        anchor: datetime.datetime,
+        zone: datetime.tzinfo,
+        window_start: datetime.datetime,
+        window_end: datetime.datetime,
+        duration: datetime.timedelta,
+    ) -> list[datetime.datetime]:
+        """Build and evaluate the dateutil rule set for this event.
+
+        Returns
+        -------
+        list of datetime.datetime
+            Instance start times, in `zone`, that could possibly overlap the window.
+
+        Notes
+        -----
+        The set is queried with ``rruleset.between()`` and never materialized whole. An
+        RRULE with no COUNT or UNTIL is infinite ("every Monday, forever"), which is both
+        legal and common, so ``list(rule_set)`` would simply never return.
+
+        The lower bound is pulled back by the event's duration so that an instance which
+        started before the window but is still running inside it is not missed; the
+        precise overlap test is applied by the caller.
+
+        RDATE and EXDATE are parsed with icalendar and converted into `zone` here rather
+        than handed to ``dateutil.rrule.rrulestr`` as text. dateutil's text parser has
+        only partial support for the ``TZID`` parameter, and feeding it a zone it cannot
+        resolve would fail the whole expansion over what is really a formatting detail.
+        """
+        from dateutil.rrule import rrulestr, rruleset
+
+        rule_set = rruleset()
+        if self.rrule:
+            rule_set.rrule(rrulestr(self.rrule, dtstart=anchor))
+        else:
+            # RDATE-only events still have the master itself as an occurrence.
+            rule_set.rdate(anchor)
+
+        for value in self._parse_date_lines(self.rdate, zone=zone):
+            rule_set.rdate(value)
+        for value in self._parse_date_lines(self.exdate, zone=zone):
+            rule_set.exdate(value)
+
+        return rule_set.between(
+            after=window_start.astimezone(zone) - duration,
+            before=window_end.astimezone(zone),
+            inc=True,
+        )
+
+    @staticmethod
+    def _parse_date_lines(
+        lines: list[str], *, zone: datetime.tzinfo
+    ) -> list[datetime.datetime]:
+        """Turn stored RDATE/EXDATE content lines into aware datetimes in `zone`."""
+        results: list[datetime.datetime] = []
+        for line in lines:
+            try:
+                _, params, value = Contentline(line).parts()
+                for parsed in icalendar.prop.vDDDLists.from_ical(
+                    value, timezone=params.get("TZID")
+                ):
+                    if isinstance(parsed, datetime.datetime):
+                        if parsed.tzinfo is None:
+                            parsed = parsed.replace(tzinfo=zone)
+                        results.append(parsed.astimezone(zone))
+                    elif isinstance(parsed, datetime.date):
+                        results.append(
+                            datetime.datetime.combine(
+                                parsed, datetime.time.min, tzinfo=zone
+                            )
+                        )
+            except Exception as e:
+                logger.warning(f"Ignoring unparseable recurrence line '{line}': {e}")
+        return results
+
+    def delete(self) -> bool:
+        """Delete this event from the server.
+
+        Returns
+        -------
+        bool
+            True when the server accepted the deletion.
+
+        Raises
+        ------
+        RuntimeError
+            If the event was not obtained from a :class:`CalendarAPI`.
+        ValueError
+            If the event has no UID or no owning calendar.
+        """
+        if self._api_reference is None:
+            raise RuntimeError(
+                "This EventData has no API reference. Only events obtained from a "
+                "CalendarAPI (via load_remote_data or add_event) can delete themselves."
+            )
+        if not self.uid or not self.calendar_uid:
+            raise ValueError(
+                f"Cannot delete an event without both a uid ('{self.uid}') and a "
+                f"calendar_uid ('{self.calendar_uid}')."
+            )
+        # Logged before the call so the content is recoverable from the log if the
+        # deletion turns out to have been a mistake.
+        logger.info(
+            f"Deleting event uid='{self.uid}' summary='{self.summary}' "
+            f"dtstart='{self.dtstart}' from calendar '{self.calendar_uid}'."
+        )
+        return self._api_reference.delete_event_by_id(
+            uid=self.uid, calendar_uid=self.calendar_uid
+        )
+
+
+def _as_utc_datetime(value: datetime.datetime | datetime.date) -> datetime.datetime:
+    """Coerce a date or datetime into an aware UTC datetime for window comparisons.
+
+    Notes
+    -----
+    Dates become midnight UTC and naive datetimes are assumed to be UTC, so that
+    all-day and timed events can be compared against one window without the caller
+    having to normalize anything first.
+    """
+    if isinstance(value, datetime.datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+    return datetime.datetime.combine(value, datetime.time.min, tzinfo=UTC)
+
+
+@dataclass(frozen=True)
+class Occurrence:
+    """One expanded instance of a (possibly recurring) event.
+
+    Notes
+    -----
+    Deliberately not an :class:`EventData`. A clone would carry the master's UID, which
+    corrupts any UID-keyed cache and invites ``update_event()`` on a phantom that has no
+    server representation. This library models the master event only; an occurrence is a
+    read-only view for display and availability checks.
+    """
+
+    all_day: bool  # Mirrors the parent event
+    dtend: datetime.datetime | datetime.date  # Exclusive, UTC-normalized when timed
+    dtstart: datetime.datetime | datetime.date  # UTC-normalized when timed
+    event: EventData = field(repr=False, compare=False)  # The master this came from
+
+    @property
+    def summary(self) -> str:
+        """Summary of the parent event, for convenience when rendering an agenda."""
+        return self.event.summary
+
+    def overlaps(
+        self, window_start: datetime.datetime, window_end: datetime.datetime
+    ) -> bool:
+        """Whether this instance intersects the half-open window ``[start, end)``."""
+        occurrence_start = _as_utc_datetime(self.dtstart)
+        occurrence_end = _as_utc_datetime(self.dtend)
+        if occurrence_end == occurrence_start:
+            # A zero-length event would never "overlap" anything, yet it is still on the
+            # calendar at that instant, so treat its start as inclusive.
+            return window_start <= occurrence_start < window_end
+        return occurrence_start < window_end and occurrence_end > window_start
+
+    def __str__(self) -> str:
+        return f"<Occurrence {self.dtstart} -> {self.dtend}: '{self.event.summary}'>"
