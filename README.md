@@ -5,12 +5,12 @@
 
 # CalDAV-Cal-API
 
-Python library and command-line interface for CalDAV calendars (VEVENTs). Connect to a CalDAV server,
-read your calendars and events as plain Python objects, and create, modify or delete events without
-touching iCalendar text by hand.
+> [!WARNING]
+> **This project is fully vibecoded.** Every line was written by [Claude Code](https://claude.com/claude-code), from an architecture I specified but did not hand-write, and I have not audited it line by line. Read it before pointing it at a calendar you care about, and keep backups.
+>
+> It exists because I wanted what my [CalDAV-Tasks-API](https://github.com/thiswillbeyourgithub/CaldavTasksAPI/) gives me for tasks (VTODOs), but for calendar events (VEVENTs). It therefore mimics that project's layout and architecture on purpose, so the two feel like the same library from the outside.
 
-This is the calendar counterpart of [CalDAV-Tasks-API](https://github.com/thiswillbeyourgithub/CaldavTasksAPI/),
-which covers tasks (VTODOs), and deliberately mirrors its architecture so the two can be used together.
+Python library and command-line interface for CalDAV calendars (VEVENTs). Connect to a CalDAV server, read your calendars and events as plain Python objects, and create, modify or delete events without touching iCalendar text by hand.
 
 ## Table of Contents
 
