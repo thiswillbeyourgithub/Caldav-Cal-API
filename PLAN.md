@@ -217,7 +217,7 @@ Shared `get_api(...)` helper, `--debug` calling `enable_debug_logging()` then `c
 
 ## Packaging
 
-`setup.py` mirroring the sibling's, `name="caldav-cal-api"`, url `https://github.com/thiswillbeyourgithub/CaldavCalAPI/` (matching the sibling's naming, repo not created yet). `install_requires`: `caldav`, `icalendar>=6.0` (needed for `Timezone.from_tzinfo`), `python-dateutil`, `click`, `urllib3`, `loguru`, `platformdirs`. Same `dev` extra. `python_requires=">=3.10"`. `bumpver.toml` with file_patterns pointing at `bumpver.toml`, `setup.py`, `caldav_cal_api/caldav_cal_api.py`, `docs/source/conf.py`.
+`setup.py` mirroring the sibling's, `name="caldav-cal-api"`, url `https://github.com/thiswillbeyourgithub/Caldav-Cal-API/`. `install_requires`: `caldav`, `icalendar>=6.0` (needed for `Timezone.from_tzinfo`), `python-dateutil`, `click`, `urllib3`, `loguru`, `platformdirs`. Same `dev` extra. `python_requires=">=3.10"`. `bumpver.toml` with file_patterns pointing at `bumpver.toml`, `setup.py`, `caldav_cal_api/caldav_cal_api.py`, `docs/source/conf.py`.
 
 ## Warts in the sibling to NOT reproduce
 
@@ -259,4 +259,4 @@ Dropped as meaningless for events: `completed`, `percent_complete`, `due_date`, 
 
 ## Open TODOs
 
-- The GitHub repo at `https://github.com/thiswillbeyourgithub/CaldavCalAPI/` (already set as `setup.py`'s `url=`) does not exist yet. The README's PyPI badge and RTD link stay commented out until the package is published and the docs are built.
+- The ReadTheDocs build is not wired up yet, so the README's docs link stays commented out. The repo (`https://github.com/thiswillbeyourgithub/Caldav-Cal-API`) and the PyPI package (`caldav-cal-api`) both exist as of 2026-09-10.

@@ -1,6 +1,7 @@
-<!-- TODO: add the PyPI badge once the package is published, and the ReadTheDocs link
-     once the docs are built:
-     [![PyPI version](https://badge.fury.io/py/caldav-cal-api.svg)](https://badge.fury.io/py/caldav-cal-api)
+[![PyPI version](https://badge.fury.io/py/caldav-cal-api.svg)](https://badge.fury.io/py/caldav-cal-api)
+
+<!-- TODO: add the ReadTheDocs link here once the docs are built, mirroring the sibling:
+     *(Full documentation available at [caldavcalapi.readthedocs.io](https://caldavcalapi.readthedocs.io/en/latest/#))*
 -->
 
 # CalDAV-Cal-API
@@ -8,7 +9,7 @@
 > [!WARNING]
 > **This project is fully vibecoded.** Every line was written by [Claude Code](https://claude.com/claude-code), from an architecture I specified but did not hand-write, and I have not audited it line by line. Read it before pointing it at a calendar you care about, and keep backups.
 >
-> It exists because I wanted what my [CalDAV-Tasks-API](https://github.com/thiswillbeyourgithub/CaldavTasksAPI/) gives me for tasks (VTODOs), but for calendar events (VEVENTs). It therefore mimics that project's layout and architecture on purpose, so the two feel like the same library from the outside.
+> It exists because I wanted what my [CalDAV-Tasks-API](https://github.com/thiswillbeyourgithub/Caldav-Tasks-API) gives me for tasks (VTODOs), but for calendar events (VEVENTs). It therefore mimics that project's layout and architecture on purpose, so the two feel like the same library from the outside.
 
 Python library and command-line interface for CalDAV calendars (VEVENTs). Connect to a CalDAV server, read your calendars and events as plain Python objects, and create, modify or delete events without touching iCalendar text by hand.
 
@@ -70,8 +71,8 @@ uv pip install caldav-cal-api
 From source:
 
 ```bash
-git clone <repository_url>
-cd caldav_cal_api_repo
+git clone https://github.com/thiswillbeyourgithub/Caldav-Cal-API
+cd Caldav-Cal-API
 
 uv pip install .          # Runtime only
 uv pip install -e .       # Editable

@@ -7,7 +7,7 @@ setup(
     description="A Python client for CalDAV calendars (VEVENT), with a CLI.",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
-    url="https://github.com/thiswillbeyourgithub/CaldavCalAPI/",
+    url="https://github.com/thiswillbeyourgithub/Caldav-Cal-API/",
     keywords=[
         "caldav",
         "calendar",

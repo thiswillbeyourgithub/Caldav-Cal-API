@@ -11,7 +11,7 @@ Python library and command-line interface for CalDAV calendars (VEVENTs).
    calendar you care about, and keep backups.
 
    It exists because I wanted what my `CalDAV-Tasks-API
-   <https://github.com/thiswillbeyourgithub/CaldavTasksAPI/>`_ gives me for tasks
+   <https://github.com/thiswillbeyourgithub/Caldav-Tasks-API>`_ gives me for tasks
    (VTODOs), but for calendar events (VEVENTs). It therefore mimics that project's
    layout and architecture on purpose, so the two feel like the same library from the
    outside.
