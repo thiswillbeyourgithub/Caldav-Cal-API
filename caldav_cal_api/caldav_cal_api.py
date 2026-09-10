@@ -209,7 +209,7 @@ class CalendarAPI:
                 if (
                     self.target_calendars is None
                     or str(cal.id) in self.target_calendars
-                    or str(cal.name) in self.target_calendars
+                    or str(cal.get_display_name()) in self.target_calendars
                 )
                 # A CalDAV collection may hold tasks only; asking it for events would
                 # either error or waste a round trip.
@@ -318,7 +318,7 @@ class CalendarAPI:
         for raw_calendar in self.raw_calendars:
             calendar_data = CalendarData(
                 uid=str(raw_calendar.id),
-                name=raw_calendar.name if raw_calendar.name else "Unnamed Calendar",
+                name=str(raw_calendar.get_display_name() or "Unnamed Calendar"),
                 color=_read_calendar_color(raw_calendar),
                 synced=True,
             )
@@ -387,7 +387,8 @@ class CalendarAPI:
             )
         except Exception as e:
             logger.warning(
-                f"Structured event fetch failed for calendar '{raw_calendar.name}' "
+                f"Structured event fetch failed for calendar "
+                f"'{raw_calendar.get_display_name()}' "
                 f"({e}). Falling back to parsing the raw collection data."
             )
 
@@ -396,7 +397,8 @@ class CalendarAPI:
             return [_RawEventShim(component) for component in parsed.walk("VEVENT")]
         except Exception as e:
             logger.error(
-                f"Raw fallback also failed for calendar '{raw_calendar.name}': {e}"
+                f"Raw fallback also failed for calendar "
+                f"'{raw_calendar.get_display_name()}': {e}"
             )
             if self.debug:
                 pdb.post_mortem()
