@@ -234,6 +234,43 @@ def test_uid_is_minted_for_new_events_but_never_for_parsed_ones():
     assert parsed.uid == ""
 
 
+def test_last_modified_is_never_invented_for_a_parsed_event():
+    """A parsed event must not gain a LAST-MODIFIED the source never had.
+
+    LAST-MODIFIED is optional, so an absent one has to stay absent. Minting "now" would
+    make parsing non-deterministic: dumping an unchanged calendar twice would show every
+    event as modified, which is exactly what examples/dump_all_calendars_for_git.py is
+    meant to rule out.
+    """
+    source = (
+        "BEGIN:VEVENT\r\n"
+        "UID:no-last-modified\r\n"
+        "DTSTAMP:20260101T120000Z\r\n"
+        "DTSTART:20260114T090000Z\r\n"
+        "DTEND:20260114T100000Z\r\n"
+        "SUMMARY:Untouched\r\n"
+        "END:VEVENT\r\n"
+    )
+    parsed = EventData.from_ical(source)
+    assert parsed.changed_at is None
+    assert "LAST-MODIFIED" not in parsed.to_ical()
+
+    # Parsing the same bytes twice must give the same bytes back, every time.
+    assert EventData.from_ical(source).to_ical() == parsed.to_ical()
+
+
+def test_last_modified_is_minted_for_a_handbuilt_event():
+    """An event this process invented gets both timestamps, since nothing else will."""
+    event = EventData(
+        summary="Brand new",
+        dtstart=datetime.datetime(2026, 5, 1, 10, 0, tzinfo=datetime.timezone.utc),
+        dtend=datetime.datetime(2026, 5, 1, 11, 0, tzinfo=datetime.timezone.utc),
+    )
+    assert event.created_at is not None
+    assert event.changed_at is not None
+    assert "LAST-MODIFIED" in event.to_ical()
+
+
 def test_to_vcalendar_emits_the_required_vtimezone():
     """A TZID reference without its VTIMEZONE is invalid and some servers reject it."""
     event = EventData(

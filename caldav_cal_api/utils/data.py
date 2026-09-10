@@ -405,10 +405,17 @@ class EventData:
         now_utc = datetime.datetime.now(UTC).replace(microsecond=0)
         if self.created_at is None:
             self.created_at = now_utc
-        if self.changed_at is None:
-            self.changed_at = now_utc
         self.created_at = self.created_at.replace(microsecond=0)
-        self.changed_at = self.changed_at.replace(microsecond=0)
+
+        # LAST-MODIFIED, unlike DTSTAMP, is optional, so an absent one is only invented
+        # for events this process built. Minting one for a parsed component would put a
+        # value in the object that the server never sent, and since it is "now" it would
+        # differ on every parse: a dump of an unchanged calendar would show every event
+        # as modified on every run.
+        if self.changed_at is None and self._raw_component is None:
+            self.changed_at = now_utc
+        if self.changed_at is not None:
+            self.changed_at = self.changed_at.replace(microsecond=0)
 
         # A UID is minted only for events this process invented. Assigning one to a
         # component that came off a server would silently fork it into a second event.
