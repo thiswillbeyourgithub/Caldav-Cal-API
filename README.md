@@ -193,6 +193,16 @@ caldav-cal-api dump --calendar Personal
 
 Every command also works as `python -m caldav_cal_api <command>`, and supports `--help`, `--debug` (verbose logging plus an interactive console with `api` in scope), and the shared connection options.
 
+## Examples
+
+The `examples/` directory holds runnable scripts: `weekly_agenda.py`, `shift_events.py`, `dump_all_calendars_for_git.py` (one text file per calendar) and `dump_calendars_for_git.py` (one `.ics` file per event). Each carries [PEP 723](https://peps.python.org/pep-0723/) inline metadata, so `uv` resolves their dependencies on the fly:
+
+```bash
+uv run examples/weekly_agenda.py --days 7
+```
+
+They read a `.env` file at the repository root, so nothing needs exporting by hand.
+
 ## Testing
 
 ```bash

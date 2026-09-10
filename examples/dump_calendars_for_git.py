@@ -1,3 +1,17 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "caldav-cal-api",
+#     "python-dotenv>=1.0",
+# ]
+#
+# # The path source makes the script run against this checkout, so `uv run` needs no
+# # install step. Drop this block once caldav-cal-api is published to PyPI; the
+# # dependency above is then enough, and the script becomes copy-pasteable anywhere.
+# [tool.uv.sources]
+# caldav-cal-api = { path = "../", editable = true }
+# ///
 """
 Dump every calendar to a directory of text files, one per event, for version control.
 
@@ -15,8 +29,13 @@ import re
 from pathlib import Path
 
 import click
+from dotenv import load_dotenv
 
 from caldav_cal_api import CalendarAPI
+
+# Credentials come from the environment. Reading .env here is what lets `uv run` work
+# straight out of a checkout without exporting anything by hand.
+load_dotenv()
 
 
 def _safe_name(value: str) -> str:

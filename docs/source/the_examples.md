@@ -13,6 +13,18 @@ A single script covering the common operations, followed by the runnable scripts
 
 Both dump scripts exist to be committed on a schedule, so that `git log -p` becomes a history of your calendars. Prefer the per-calendar dump when you want something readable and greppable, and the per-event dump when you want the smallest possible diffs. Neither ever writes to the server: both open the API with `read_only=True`.
 
+Every script in `examples/` carries [PEP 723](https://peps.python.org/pep-0723/) inline metadata, so `uv` installs what it needs on the fly and no virtualenv setup is required:
+
+```bash
+uv run examples/weekly_agenda.py --days 7
+uv run examples/dump_all_calendars_for_git.py --output-dir ./calendar_dump
+
+# They are executable too, since the shebang hands the file back to uv.
+./examples/weekly_agenda.py --days 7
+```
+
+Each one calls `load_dotenv()`, so credentials in a `.env` file at the repository root are picked up without exporting anything by hand.
+
 Their output is deterministic, which is what makes the diffs meaningful: dumping an unchanged calendar twice produces identical bytes, so a diff always means something really changed.
 
 ```python
