@@ -39,11 +39,33 @@ UTC = datetime.timezone.utc
 DEFAULT_WINDOW_START_DAYS = -30
 DEFAULT_WINDOW_END_DAYS = 365
 
-# Apache's mod_deflate and mod_brotli append a suffix to the ETag of any response they
-# compress, so the same resource is advertised as '"abc"' uncompressed and '"abc-gzip"'
-# compressed. Echoing the suffixed form back in If-Match makes the server compare it
-# against the stored '"abc"' and answer 412. See _normalize_etag.
-_ETAG_ENCODING_SUFFIX = re.compile(r'^(W/)?"(.*?)(?:-(?:gzip|br|deflate))"$')
+# A compressing HTTP layer appends the content coding it applied to the ETag of the
+# response, so the same resource is advertised as '"abc"' uncompressed and '"abc-gzip"',
+# '"abc-br"' or '"abc-zstd"' compressed. Echoing the suffixed form back in If-Match makes
+# the server compare it against the stored '"abc"' and answer 412. See _normalize_etag.
+#
+# The tokens are the HTTP content codings from the IANA registry. Which one shows up is
+# not a property of the server: it is whatever the client negotiated, so it changes with
+# the HTTP stack installed alongside this library.
+_CONTENT_CODINGS = (
+    "aes128gcm",
+    "br",
+    "compress",
+    "dcb",
+    "dcz",
+    "deflate",
+    "exi",
+    "gzip",
+    "identity",
+    "pack200-gzip",
+    "x-compress",
+    "x-gzip",
+    "zstd",
+)
+# A chain of filters can append more than one suffix, hence the repetition.
+_ETAG_ENCODING_SUFFIX = re.compile(
+    r'^(W/)?"(.*?)((?:-(?:' + "|".join(_CONTENT_CODINGS) + r"))+)\"$"
+)
 
 
 class CalendarAPI:
@@ -718,31 +740,78 @@ def _env_flag(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _strip_etag_encoding_suffix(etag: str) -> str:
+    """Remove any trailing HTTP content-coding suffix from an ETag.
+
+    Parameters
+    ----------
+    etag : str
+        The ETag as the HTTP layer reported it.
+
+    Returns
+    -------
+    str
+        The ETag with any content-coding suffix removed, or the input unchanged when it
+        does not carry one.
+    """
+    match = _ETAG_ENCODING_SUFFIX.match(etag)
+    if not match:
+        return etag
+    return f'{match.group(1) or ""}"{match.group(2)}"'
+
+
 def _normalize_etag(server_event: Event) -> None:
-    """Strip any content-encoding suffix from a freshly loaded event's ETag.
+    """Replace a compression-mangled ETag with the one the server actually stores.
 
     Notes
     -----
     ``caldav`` sends the ETag it holds as an ``If-Match`` header on every write, which is
-    the optimistic concurrency check we want. Apache appends ``-gzip`` (or ``-br``) to the
-    ETag of responses it compresses, though, so a GET large enough to be compressed hands
-    back a token the server will not recognise on the way back in: the write then fails
-    with 412 Precondition Failed.
+    the optimistic concurrency check we want. Apache appends the content coding it applied
+    to the ETag of any response it compresses, though, so a GET large enough to be
+    compressed hands back a token the server will not recognise on the way back in: the
+    write then fails with 412 Precondition Failed.
 
     Size is what decides it, which is why this surfaced only on the bigger events. A
     ``DTSTART;TZID=`` forces a VTIMEZONE into the payload and pushes it past the
     compression threshold, so timed events in a named zone hit it while plain UTC ones
-    slip under. Rewriting the ETag in place keeps If-Match working rather than dropping
-    the concurrency check.
+    slip under.
+
+    The suffix is not guessed away. Only the HTTP *header* is rewritten by the compressing
+    layer; the WebDAV ``getetag`` property travels inside the XML body of a PROPFIND and
+    arrives intact, so the authoritative value is fetched from there. Guessing is the
+    fallback for a server that will not answer that PROPFIND.
+
+    Which coding appears is a property of the client, not the server: it is whatever was
+    negotiated, so an environment with ``brotli`` or ``zstd`` support sees a different
+    suffix than a plain ``urllib3`` one against the very same server. That is why the
+    check cannot simply special-case gzip.
     """
     etag = server_event.props.get(dav.GetEtag.tag)
     if not etag:
         return
-    match = _ETAG_ENCODING_SUFFIX.match(etag)
-    if match:
-        cleaned = f'{match.group(1) or ""}"{match.group(2)}"'
-        logger.debug(f"Normalized ETag {etag} to {cleaned} for the If-Match header.")
-        server_event.props[dav.GetEtag.tag] = cleaned
+    if _ETAG_ENCODING_SUFFIX.match(etag) is None:
+        # No suffix, so the header is already the stored value: no extra round trip.
+        return
+
+    try:
+        authoritative = server_event.get_property(dav.GetEtag(), use_cached=False)
+    except Exception as e:
+        authoritative = None
+        logger.debug(f"Could not PROPFIND the getetag property for {etag}: {e}")
+
+    if authoritative:
+        logger.debug(
+            f"ETag {etag} was mangled by content encoding; the server reports "
+            f"{authoritative}."
+        )
+        server_event.props[dav.GetEtag.tag] = authoritative
+        return
+
+    # Fall back to trimming the suffix. Worse than asking, but better than sending a
+    # token that is certain to be rejected.
+    stripped = _strip_etag_encoding_suffix(etag)
+    logger.debug(f"Falling back to trimming ETag {etag} to {stripped}.")
+    server_event.props[dav.GetEtag.tag] = stripped
 
 
 def _read_calendar_color(raw_calendar: Calendar) -> str:
