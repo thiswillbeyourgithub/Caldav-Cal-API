@@ -19,11 +19,13 @@ really exists. Pass ``fetch_all=True`` when you genuinely need everything.
 import datetime
 import os
 import pdb
+import re
 from typing import Optional
 
 import caldav
 import urllib3
 from caldav import Calendar, DAVClient, Event, Principal
+from caldav.elements import dav
 from icalendar import Calendar as IcsCalendar
 from loguru import logger
 
@@ -36,6 +38,12 @@ UTC = datetime.timezone.utc
 # reporting without dragging in years of dead weight.
 DEFAULT_WINDOW_START_DAYS = -30
 DEFAULT_WINDOW_END_DAYS = 365
+
+# Apache's mod_deflate and mod_brotli append a suffix to the ETag of any response they
+# compress, so the same resource is advertised as '"abc"' uncompressed and '"abc-gzip"'
+# compressed. Echoing the suffixed form back in If-Match makes the server compare it
+# against the stored '"abc"' and answer 412. See _normalize_etag.
+_ETAG_ENCODING_SUFFIX = re.compile(r'^(W/)?"(.*?)(?:-(?:gzip|br|deflate))"$')
 
 
 class CalendarAPI:
@@ -522,13 +530,16 @@ class CalendarAPI:
             try:
                 server_event = Event(client=self.client, url=href, parent=raw_calendar)
                 server_event.load()
+                _normalize_etag(server_event)
                 return server_event
             except Exception as e:
                 logger.debug(
                     f"Direct href lookup failed for '{href}' ({e}); "
                     "falling back to a UID search."
                 )
-        return raw_calendar.event_by_uid(event_uid)
+        server_event = raw_calendar.event_by_uid(event_uid)
+        _normalize_etag(server_event)
+        return server_event
 
     def add_event(
         self, event: EventData, calendar_uid: Optional[str] = None
@@ -703,6 +714,33 @@ class CalendarAPI:
 def _env_flag(name: str) -> bool:
     """Read a boolean env var, accepting the usual truthy spellings."""
     return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _normalize_etag(server_event: Event) -> None:
+    """Strip any content-encoding suffix from a freshly loaded event's ETag.
+
+    Notes
+    -----
+    ``caldav`` sends the ETag it holds as an ``If-Match`` header on every write, which is
+    the optimistic concurrency check we want. Apache appends ``-gzip`` (or ``-br``) to the
+    ETag of responses it compresses, though, so a GET large enough to be compressed hands
+    back a token the server will not recognise on the way back in: the write then fails
+    with 412 Precondition Failed.
+
+    Size is what decides it, which is why this surfaced only on the bigger events. A
+    ``DTSTART;TZID=`` forces a VTIMEZONE into the payload and pushes it past the
+    compression threshold, so timed events in a named zone hit it while plain UTC ones
+    slip under. Rewriting the ETag in place keeps If-Match working rather than dropping
+    the concurrency check.
+    """
+    etag = server_event.props.get(dav.GetEtag.tag)
+    if not etag:
+        return
+    match = _ETAG_ENCODING_SUFFIX.match(etag)
+    if match:
+        cleaned = f'{match.group(1) or ""}"{match.group(2)}"'
+        logger.debug(f"Normalized ETag {etag} to {cleaned} for the If-Match header.")
+        server_event.props[dav.GetEtag.tag] = cleaned
 
 
 def _read_calendar_color(raw_calendar: Calendar) -> str:
