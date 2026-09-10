@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from caldav_cal_api.utils.data import EventData
+from caldav_cal_api.utils.data import EventData, _normalize_rrule_until
 
 PARIS = ZoneInfo("Europe/Paris")
 UTC = datetime.timezone.utc
@@ -196,3 +196,76 @@ def test_recurrence_survives_a_serialization_roundtrip():
     after = [occ.dtstart for occ in reparsed.get_occurrences(*window)]
 
     assert before == after
+
+
+def test_until_as_a_bare_date_still_expands():
+    """A DATE-valued UNTIL beside a timed DTSTART must not kill the expansion.
+
+    RFC 5545 requires UNTIL to be a UTC DATE-TIME when DTSTART is timezone-aware, and
+    dateutil enforces it by raising. Real calendars break the rule constantly, and the
+    fallback (the master event alone) reads as an event that has stopped repeating. Found
+    in a live Nextcloud calendar.
+    """
+    paris = ZoneInfo("Europe/Paris")
+    start = datetime.datetime(2025, 10, 7, 19, 0, tzinfo=paris)
+    event = EventData(
+        summary="Every four weeks",
+        dtstart=start,
+        dtend=start + datetime.timedelta(hours=1),
+        rrule="FREQ=WEEKLY;UNTIL=20251111;INTERVAL=4;BYDAY=TU",
+    )
+    occurrences = event.get_occurrences(
+        datetime.datetime(2025, 10, 1, tzinfo=datetime.timezone.utc),
+        datetime.datetime(2025, 12, 31, tzinfo=datetime.timezone.utc),
+    )
+    # 7 October and 4 November: the 2 December instance is past UNTIL.
+    assert [o.dtstart.astimezone(paris).date() for o in occurrences] == [
+        datetime.date(2025, 10, 7),
+        datetime.date(2025, 11, 4),
+    ]
+    # The stored rule is untouched, so what goes back to the server is what came from it.
+    assert event.rrule == "FREQ=WEEKLY;UNTIL=20251111;INTERVAL=4;BYDAY=TU"
+
+
+def test_an_until_on_its_last_day_is_included():
+    """ "Through that day" is the reading, so an instance on the UNTIL date survives."""
+    paris = ZoneInfo("Europe/Paris")
+    start = datetime.datetime(2025, 11, 3, 9, 0, tzinfo=paris)
+    event = EventData(
+        summary="Daily until",
+        dtstart=start,
+        dtend=start + datetime.timedelta(minutes=30),
+        rrule="FREQ=DAILY;UNTIL=20251105",
+    )
+    occurrences = event.get_occurrences(
+        datetime.datetime(2025, 11, 1, tzinfo=datetime.timezone.utc),
+        datetime.datetime(2025, 11, 30, tzinfo=datetime.timezone.utc),
+    )
+    assert [o.dtstart.astimezone(paris).date() for o in occurrences] == [
+        datetime.date(2025, 11, 3),
+        datetime.date(2025, 11, 4),
+        datetime.date(2025, 11, 5),
+    ]
+
+
+@pytest.mark.parametrize(
+    "rrule, expected",
+    [
+        # A bare DATE becomes the final second of that day, in the expansion zone.
+        (
+            "FREQ=WEEKLY;UNTIL=20251111;BYDAY=TU",
+            "FREQ=WEEKLY;UNTIL=20251111T225959Z;BYDAY=TU",
+        ),
+        # A naive DATE-TIME is read in the expansion zone.
+        ("FREQ=DAILY;UNTIL=20251111T120000", "FREQ=DAILY;UNTIL=20251111T110000Z"),
+        # An UNTIL already in UTC is left exactly as it is.
+        ("FREQ=DAILY;UNTIL=20251111T120000Z", "FREQ=DAILY;UNTIL=20251111T120000Z"),
+        # So is a rule with no UNTIL at all.
+        ("FREQ=WEEKLY;COUNT=4;BYDAY=WE", "FREQ=WEEKLY;COUNT=4;BYDAY=WE"),
+        # An unreadable value is left alone rather than guessed at.
+        ("FREQ=DAILY;UNTIL=next tuesday", "FREQ=DAILY;UNTIL=next tuesday"),
+    ],
+)
+def test_until_normalization(rrule, expected):
+    """The rewriting itself, with Europe/Paris as the expansion zone (UTC+1 in November)."""
+    assert _normalize_rrule_until(rrule, zone=ZoneInfo("Europe/Paris")) == expected
