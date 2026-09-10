@@ -12,3 +12,5 @@ dist/
 build/
 .pytest_cache/
 docs/build/
+
+**/*dump
