@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="caldav-cal-api",
-    version="0.1.0",
+    version="0.1.1",
     author="thiswillbeyourgithub",
     description="A Python client for CalDAV calendars (VEVENT), with a CLI.",
     long_description=open("README.md").read(),

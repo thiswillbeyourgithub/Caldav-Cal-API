@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.abspath("./../.."))
 project = "CalDAV-Cal-API"
 copyright = "2026, thiswillbeyourgithub"
 author = "thiswillbeyourgithub"
-release = "0.1.0"  # Kept in sync by bumpver.
+release = "0.1.1"  # Kept in sync by bumpver.
 
 extensions = [
     "sphinx.ext.autodoc",

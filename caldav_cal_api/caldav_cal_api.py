@@ -107,7 +107,7 @@ class CalendarAPI:
         If the server cannot be reached or authentication fails.
     """
 
-    VERSION: str = "0.1.0"
+    VERSION: str = "0.1.1"
 
     def __init__(
         self,
