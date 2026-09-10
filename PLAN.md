@@ -2,7 +2,7 @@
 
 Plan written with Claude Code. Keep this file updated as work progresses so a future session can pick up where the last one stopped.
 
-**Status: all planned steps are complete.** What remains is listed under Open TODOs at the bottom.
+**Status: complete.** Every planned step is done and no placeholders remain; see Open TODOs at the bottom.
 
 ## Context
 
@@ -259,4 +259,4 @@ Dropped as meaningless for events: `completed`, `percent_complete`, `due_date`, 
 
 ## Open TODOs
 
-- The ReadTheDocs build is not wired up yet, so the README's docs link stays commented out. The repo (`https://github.com/thiswillbeyourgithub/Caldav-Cal-API`) and the PyPI package (`caldav-cal-api`) both exist as of 2026-09-10.
+None. As of 2026-09-10 the repo (`https://github.com/thiswillbeyourgithub/Caldav-Cal-API`), the PyPI package (`caldav-cal-api`) and the docs (`https://caldav-cal-api.readthedocs.io/en/latest/`) all exist, and every placeholder that was waiting on them has been filled in.

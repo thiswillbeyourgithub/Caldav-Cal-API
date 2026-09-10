@@ -1,8 +1,6 @@
 [![PyPI version](https://badge.fury.io/py/caldav-cal-api.svg)](https://badge.fury.io/py/caldav-cal-api)
 
-<!-- TODO: add the ReadTheDocs link here once the docs are built, mirroring the sibling:
-     *(Full documentation available at [caldavcalapi.readthedocs.io](https://caldavcalapi.readthedocs.io/en/latest/#))*
--->
+*(Full documentation available at [caldav-cal-api.readthedocs.io](https://caldav-cal-api.readthedocs.io/en/latest/))*
 
 # CalDAV-Cal-API
 
