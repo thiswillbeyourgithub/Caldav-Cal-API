@@ -1,6 +1,19 @@
 # Examples
 
-A single script covering the common operations. Runnable scripts live in the `examples/` directory of the repository.
+A single script covering the common operations, followed by the runnable scripts that live in the `examples/` directory of the repository.
+
+## Runnable scripts
+
+| Script | What it does |
+| --- | --- |
+| `weekly_agenda.py` | Print the coming week's agenda, recurrences expanded. |
+| `shift_events.py` | Move a selection of events by a fixed offset. |
+| `dump_all_calendars_for_git.py` | One `{calendar}.dump` text file per calendar, every event as a VEVENT block, sorted by start time. The calendar counterpart of the sibling project's `dump_all_lists_for_git.py`. |
+| `dump_calendars_for_git.py` | The same idea at a finer grain: one `.ics` file per event, under one directory per calendar. |
+
+Both dump scripts exist to be committed on a schedule, so that `git log -p` becomes a history of your calendars. Prefer the per-calendar dump when you want something readable and greppable, and the per-event dump when you want the smallest possible diffs. Neither ever writes to the server: both open the API with `read_only=True`.
+
+Their output is deterministic, which is what makes the diffs meaningful: dumping an unchanged calendar twice produces identical bytes, so a diff always means something really changed.
 
 ```python
 import datetime
