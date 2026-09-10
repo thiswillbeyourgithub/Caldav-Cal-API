@@ -28,9 +28,7 @@ Python library and command-line interface for CalDAV calendars (VEVENTs). Connec
 
 ## Motivation and Purpose
 
-Reading a calendar from Python usually means either driving the `caldav` library directly, which leaves you
-parsing iCalendar and juggling timezones, or reaching for something that hides so much you cannot tell what
-it sends to the server. This library sits between the two:
+Reading a calendar from Python usually means either driving the `caldav` library directly, which leaves you parsing iCalendar and juggling timezones, or reaching for something that hides so much you cannot tell what it sends to the server. This library sits between the two:
 
 1. Calendars and events as ordinary dataclasses you can read, mutate and write back.
 2. Timezone handling that is correct by default, including across DST transitions.
@@ -39,9 +37,7 @@ it sends to the server. This library sits between the two:
 
 ## Compatibility
 
-Developed and tested against **Nextcloud**. It should work with any RFC 4791 server; reports from other
-servers are welcome. Pass `nextcloud_mode=False` if your server does not use Nextcloud's
-`remote.php/dav/` path layout.
+Developed and tested against **Nextcloud**. It should work with any RFC 4791 server; reports from other servers are welcome. Pass `nextcloud_mode=False` if your server does not use Nextcloud's `remote.php/dav/` path layout.
 
 ## Features
 
@@ -49,31 +45,21 @@ servers are welcome. Pass `nextcloud_mode=False` if your server does not use Nex
 - Create, update and delete events.
 - Timezone-aware datetimes, normalized to UTC internally while preserving the original `TZID`.
 - All-day events as `date` objects, with the exclusive `DTEND` handled correctly.
-- Recurrence stored raw (`RRULE` / `RDATE` / `EXDATE`) with an opt-in `get_occurrences()` expander that
-  respects DST.
-- Properties this library does not model (attendees, organizer, alarms, and so on) are preserved verbatim
-  across updates.
+- Recurrence stored raw (`RRULE` / `RDATE` / `EXDATE`) with an opt-in `get_occurrences()` expander that respects DST.
+- Properties this library does not model (attendees, organizer, alarms, and so on) are preserved verbatim across updates.
 - Read-only mode, for dry runs and for code that must not write.
 - A read-only CLI: `list-calendars`, `list-upcoming`, `search`, `dump`.
 - Configuration via environment variables.
 
 ## Design decisions worth knowing
 
-**The cache is a window, not the calendar.** A calendar can hold decades of events, so `load_remote_data()`
-fetches a bounded date range: by default the last 30 days and the next year. An event outside that range is
-simply not loaded, and `get_event_by_global_uid()` will return `None` for it. Pass `fetch_all=True` (or set
-`CALDAV_CAL_API_FETCH_ALL`) when you genuinely need everything.
+**The cache is a window, not the calendar.** A calendar can hold decades of events, so `load_remote_data()` fetches a bounded date range: by default the last 30 days and the next year. An event outside that range is simply not loaded, and `get_event_by_global_uid()` will return `None` for it. Pass `fetch_all=True` (or set `CALDAV_CAL_API_FETCH_ALL`) when you genuinely need everything.
 
-**Only the master event is modeled.** Recurrence is stored raw and expanded on demand. Per-occurrence
-modifications (`RECURRENCE-ID` overrides) are not represented; when one is encountered it is dropped with a
-warning rather than silently. There is no "this event / this and future / all events" edit distinction.
+**Only the master event is modeled.** Recurrence is stored raw and expanded on demand. Per-occurrence modifications (`RECURRENCE-ID` overrides) are not represented; when one is encountered it is dropped with a warning rather than silently. There is no "this event / this and future / all events" edit distinction.
 
-**`DTEND` is exclusive.** A single all-day event on 4 March has `dtstart=date(2026, 3, 4)` and
-`dtend=date(2026, 3, 5)`. Use the `last_day` property when you want the inclusive final day for display.
+**`DTEND` is exclusive.** A single all-day event on 4 March has `dtstart=date(2026, 3, 4)` and `dtend=date(2026, 3, 5)`. Use the `last_day` property when you want the inclusive final day for display.
 
-**Unmodeled properties survive.** Each event keeps its source component, and writing rewrites only the
-properties this library owns. Changing a meeting's summary will not strip its attendees or everyone's
-reminders.
+**Unmodeled properties survive.** Each event keeps its source component, and writing rewrites only the properties this library owns. Changing a meeting's summary will not strip its attendees or everyone's reminders.
 
 ## Installation
 
@@ -205,8 +191,7 @@ caldav-cal-api search dentist --start 2026-01-01 --end 2026-12-31
 caldav-cal-api dump --calendar Personal
 ```
 
-Every command also works as `python -m caldav_cal_api <command>`, and supports `--help`, `--debug`
-(verbose logging plus an interactive console with `api` in scope), and the shared connection options.
+Every command also works as `python -m caldav_cal_api <command>`, and supports `--help`, `--debug` (verbose logging plus an interactive console with `api` in scope), and the shared connection options.
 
 ## Testing
 
@@ -215,14 +200,10 @@ uv pip install -e ".[dev]"
 pytest
 ```
 
-The offline tests (data model, iCalendar serialization, recurrence expansion) run in a bare checkout. The
-server-backed tests are skipped unless the four `CALDAV_CAL_API_TEST_*` variables are set; point
-`CALDAV_CAL_API_TEST_CALENDAR_NAME` at a scratch calendar, since those tests create and delete events in
-it.
+The offline tests (data model, iCalendar serialization, recurrence expansion) run in a bare checkout. The server-backed tests are skipped unless the four `CALDAV_CAL_API_TEST_*` variables are set; point `CALDAV_CAL_API_TEST_CALENDAR_NAME` at a scratch calendar, since those tests create and delete events in it.
 
 ## Contributing
 
-Issues and pull requests are welcome. Please keep to the existing style (black, NumPy-style docstrings) and
-add a test for any bug you fix.
+Issues and pull requests are welcome. Please keep to the existing style (black, NumPy-style docstrings) and add a test for any bug you fix.
 
 This project was written with the help of [Claude Code](https://claude.com/claude-code).

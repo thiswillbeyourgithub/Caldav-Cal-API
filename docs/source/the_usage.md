@@ -19,9 +19,7 @@ Every setting can come from an environment variable. Copy `.env.example` to `.en
 | `CALDAV_CAL_API_TEST_PASSWORD` | Test password |
 | `CALDAV_CAL_API_TEST_CALENDAR_NAME` | Scratch calendar the write tests may modify |
 
-An explicit argument always beats the environment. For the load window the order is: the argument passed to
-`load_remote_data()`, then the one passed to the constructor, then the environment variable, then the
-built-in default.
+An explicit argument always beats the environment. For the load window the order is: the argument passed to `load_remote_data()`, then the one passed to the constructor, then the environment variable, then the built-in default.
 
 ## Command line
 
@@ -57,8 +55,7 @@ Every command accepts:
 
 - `--url`, `--username`, `--password`: override the corresponding environment variables.
 - `--nextcloud-mode` / `--no-nextcloud-mode`: append Nextcloud's `remote.php/dav/` path when missing.
-- `--calendar NAME_OR_ID`: repeatable. Restricting the calendars loaded is the single most effective way to
-  speed up a command.
+- `--calendar NAME_OR_ID`: repeatable. Restricting the calendars loaded is the single most effective way to speed up a command.
 - `--debug` / `--no-debug`: verbose logging, then an interactive Python console with `api` in scope.
 - `-h` / `--help`.
 
@@ -66,11 +63,7 @@ Every command accepts:
 
 - `list-calendars`: none. It deliberately does not load events, so it stays fast on large accounts.
 - `list-upcoming`: `--calendar-uid`, `--days` (default 7), `--limit` (default 25), `--json`.
-- `search TEXT`: `--calendar-uid`, `--start`, `--end` (both `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM:SS`), `--json`.
-  The range is applied server-side as the load window; the text match then runs locally over summary,
-  description and location. Narrowing the range is what makes a search over a large account fast.
+- `search TEXT`: `--calendar-uid`, `--start`, `--end` (both `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM:SS`), `--json`. The range is applied server-side as the load window; the text match then runs locally over summary, description and location. Narrowing the range is what makes a search over a large account fast.
 - `dump`: `--calendar-uid`.
 
-> **Note on read/write.** The CLI can never write. `CalendarAPI` itself accepts `read_only=True`, which
-> makes `add_event`, `update_event` and `delete_event_by_id` raise `PermissionError`; that is the way to
-> dry-run a script that would otherwise modify a calendar.
+> **Note on read/write.** The CLI can never write. `CalendarAPI` itself accepts `read_only=True`, which makes `add_event`, `update_event` and `delete_event_by_id` raise `PermissionError`; that is the way to dry-run a script that would otherwise modify a calendar.

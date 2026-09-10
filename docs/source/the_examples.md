@@ -1,7 +1,6 @@
 # Examples
 
-A single script covering the common operations. Runnable scripts live in the `examples/` directory of the
-repository.
+A single script covering the common operations. Runnable scripts live in the `examples/` directory of the repository.
 
 ```python
 import datetime

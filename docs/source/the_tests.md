@@ -1,7 +1,6 @@
 # Tests
 
-Two suites live in `tests/`. The offline one runs anywhere; the server-backed one is skipped unless
-credentials are configured.
+Two suites live in `tests/`. The offline one runs anywhere; the server-backed one is skipped unless credentials are configured.
 
 ## Offline
 
@@ -37,9 +36,7 @@ No server, no credentials. Covers the data model, iCalendar serialization and re
 
 ## Server-backed
 
-Real server, no mocks: the bugs worth catching in a CalDAV client are the ones that appear when a real
-server rewrites, reorders or normalizes what you sent it, and a mock would only reproduce your own
-assumptions.
+Real server, no mocks: the bugs worth catching in a CalDAV client are the ones that appear when a real server rewrites, reorders or normalizes what you sent it, and a mock would only reproduce your own assumptions.
 
 | Area | Feature tested | Test function |
 | --- | --- | --- |
@@ -58,8 +55,7 @@ assumptions.
 Defined in `tests/conftest.py`, all session-scoped except the last:
 
 - `caldav_credentials`: the test server's URL, username and password, or a skip.
-- `test_calendar_name`: the scratch calendar's name. Required rather than defaulted, so a
-  misconfiguration cannot make the write tests touch a real calendar.
+- `test_calendar_name`: the scratch calendar's name. Required rather than defaulted, so a misconfiguration cannot make the write tests touch a real calendar.
 - `api`: a connected, loaded `CalendarAPI` restricted to that calendar.
 - `read_only_api`: the same connection with `read_only=True`.
 - `scratch_calendar_uid`: the UID of the scratch calendar.
@@ -72,8 +68,7 @@ pytest                       # Offline only, unless .env is configured
 pytest tests/test_event_data.py tests/test_occurrences.py   # Offline explicitly
 ```
 
-The server-backed tests need all four variables set, most easily in a `.env` file, which
-`python-dotenv` loads automatically:
+The server-backed tests need all four variables set, most easily in a `.env` file, which `python-dotenv` loads automatically:
 
 ```
 CALDAV_CAL_API_TEST_URL=...
