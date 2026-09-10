@@ -389,12 +389,32 @@ class EventData:
         self.changed_at, _ = _to_utc_aware(self.changed_at, "", "changed_at")
 
         if self.dtstart is not None and self.dtend is not None:
-            if self.dtend <= self.dtstart:
+            # An inverted range is always wrong, whatever the value type.
+            if self.dtend < self.dtstart:
                 raise ValueError(
-                    f"dtend ({self.dtend}) must be strictly after dtstart ({self.dtstart}). "
-                    "Remember that DTEND is exclusive: a single all-day event on "
-                    "2026-03-04 has dtend=2026-03-05. Use the last_day property to read "
-                    "the inclusive final day of an all-day event."
+                    f"dtend ({self.dtend}) must not be before dtstart ({self.dtstart})."
+                )
+            # An equal pair means different things for the two value types. All-day DTEND
+            # is exclusive, so dtstart == dtend describes zero days, which no event can
+            # be: that is the mistake of writing dtend=2026-03-04 for a one-day event on
+            # 2026-03-04, and it is worth refusing loudly.
+            #
+            # A timed event of zero length is a different matter. RFC 5545 asks for DTEND
+            # to be later than DTSTART, but real clients emit instants anyway, and this
+            # library reads other people's calendars: rejecting one means dropping an
+            # event the user can plainly see in their calendar app. It is accepted with a
+            # note instead.
+            if self.dtend == self.dtstart:
+                if self.all_day:
+                    raise ValueError(
+                        f"An all-day event cannot end on its own start ({self.dtstart}). "
+                        "DTEND is exclusive: a single all-day event on 2026-03-04 has "
+                        "dtend=2026-03-05. Use the last_day property to read the "
+                        "inclusive final day of an all-day event."
+                    )
+                logger.debug(
+                    f"Event '{self.summary}' has a zero length (dtstart == dtend == "
+                    f"{self.dtstart}). Keeping it as an instant."
                 )
 
         # DTSTAMP is mandatory in a VEVENT, so it is settled here rather than at write
@@ -1193,7 +1213,9 @@ class EventData:
 
         rule_set = rruleset()
         if self.rrule:
-            rule_set.rrule(rrulestr(self.rrule, dtstart=anchor))
+            rule_set.rrule(
+                rrulestr(_normalize_rrule_until(self.rrule, zone=zone), dtstart=anchor)
+            )
         else:
             # RDATE-only events still have the master itself as an occurrence.
             rule_set.rdate(anchor)
@@ -1269,6 +1291,66 @@ class EventData:
         return self._api_reference.delete_event_by_id(
             uid=self.uid, calendar_uid=self.calendar_uid
         )
+
+
+def _normalize_rrule_until(rrule: str, *, zone: datetime.tzinfo) -> str:
+    """Rewrite an RRULE's UNTIL into the UTC form ``dateutil`` insists on.
+
+    Parameters
+    ----------
+    rrule : str
+        The raw RRULE value, e.g. ``"FREQ=WEEKLY;UNTIL=20251111;BYDAY=TU"``.
+    zone : datetime.tzinfo
+        The zone the expansion runs in, used to interpret a value that carries no
+        explicit offset.
+
+    Returns
+    -------
+    str
+        The rule with UNTIL expressed as a UTC ``DATE-TIME``, or the input unchanged when
+        there is nothing to fix or the value cannot be read.
+
+    Notes
+    -----
+    RFC 5545 §3.3.10 requires UNTIL to be a UTC DATE-TIME whenever DTSTART is a
+    timezone-aware DATE-TIME, and ``dateutil`` enforces that by raising. Real calendars
+    break the rule constantly: an ``UNTIL=20251111`` alongside a timed DTSTART is common
+    enough that refusing it means losing every occurrence of the event and showing the
+    master alone, which reads as an event that has stopped repeating.
+
+    A bare DATE is taken to mean "through the end of that day", since that is what a
+    client writing one intends. The stored ``rrule`` is left untouched, so what goes back
+    to the server stays byte-for-byte what came from it: this is a reading accommodation,
+    not a correction.
+    """
+    parts = rrule.split(";")
+    for index, part in enumerate(parts):
+        key, separator, value = part.partition("=")
+        if separator != "=" or key.strip().upper() != "UNTIL":
+            continue
+
+        value = value.strip()
+        if not value or value.endswith("Z"):
+            # Already the UTC form dateutil wants.
+            return rrule
+
+        try:
+            if "T" in value:
+                moment = datetime.datetime.strptime(value, "%Y%m%dT%H%M%S")
+                moment = moment.replace(tzinfo=zone)
+            else:
+                day = datetime.datetime.strptime(value, "%Y%m%d")
+                moment = day.replace(hour=23, minute=59, second=59, tzinfo=zone)
+        except ValueError as e:
+            logger.warning(f"Leaving unreadable UNTIL value '{value}' alone: {e}")
+            return rrule
+
+        rewritten = moment.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
+        logger.debug(f"Reading UNTIL '{value}' as '{rewritten}' for expansion.")
+        parts[index] = f"{key}={rewritten}"
+        return ";".join(parts)
+
+    return rrule
 
 
 def _as_utc_datetime(value: datetime.datetime | datetime.date) -> datetime.datetime:

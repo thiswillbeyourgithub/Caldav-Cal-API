@@ -182,9 +182,38 @@ def test_all_day_flag_is_reconciled_with_value_types():
     assert demoted.dtstart_tzid == ""  # DATE values carry no TZID.
 
 
+def test_zero_length_timed_event_is_accepted():
+    """An instant is kept, not dropped.
+
+    RFC 5545 asks DTEND to be later than DTSTART, but real clients emit zero-length timed
+    events anyway, and this library reads other people's calendars: rejecting one meant
+    skipping an event the user can plainly see in their calendar app. Found in a live
+    Nextcloud calendar.
+    """
+    moment = datetime.datetime(2026, 1, 23, 19, 0, tzinfo=datetime.timezone.utc)
+    event = EventData(summary="Instant", dtstart=moment, dtend=moment)
+    assert event.dtstart == event.dtend
+    assert event.duration == datetime.timedelta(0)
+
+
+def test_inverted_range_is_still_rejected():
+    """A DTEND before DTSTART is wrong under any reading."""
+    start = datetime.datetime(2026, 1, 23, 19, 0, tzinfo=datetime.timezone.utc)
+    with pytest.raises(ValueError, match="must not be before"):
+        EventData(
+            summary="Backwards",
+            dtstart=start,
+            dtend=start - datetime.timedelta(hours=1),
+        )
+
+
 def test_zero_length_all_day_event_is_rejected():
-    """dtend == dtstart is an error for an all-day event, not a zero-length day."""
-    with pytest.raises(ValueError, match="strictly after"):
+    """dtend == dtstart is an error for an all-day event, not a zero-length day.
+
+    Unlike a timed event, where zero length means an instant, an all-day DTEND is
+    exclusive: equal ends describe zero days, which no event can be.
+    """
+    with pytest.raises(ValueError, match="cannot end on its own start"):
         EventData(dtstart=datetime.date(2026, 3, 4), dtend=datetime.date(2026, 3, 4))
 
 
